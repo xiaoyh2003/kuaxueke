@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>长安珍藏 - 17:5.5比例版</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #1a1a1a; font-family: 'Segoe UI', sans-serif; }
+        
+        #header {
+            position: absolute; top: 20px; width: 100%; text-align: center; color: #d4a017;
+            z-index: 10; pointer-events: none; text-shadow: 0 2px 10px rgba(0,0,0,0.8);
+        }
+        h1 { margin: 0; font-size: 28px; letter-spacing: 2px; }
+        .subtitle { font-size: 14px; color: #aaa; margin-top: 5px; }
+
+        #controls {
+            position: absolute; bottom: 40px; width: 100%; display: flex; justify-content: center; gap: 20px;
+            z-index: 10; transition: opacity 0.5s;
+        }
+
+        .btn {
+            background: linear-gradient(145deg, #2a2a2a, #333); border: 1px solid rgba(255, 215, 0, 0.3);
+            color: #e0e0e0; padding: 12px 25px; border-radius: 4px; cursor: pointer; font-size: 16px;
+            display: flex; align-items: center; gap: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            text-transform: uppercase; font-weight: bold;
+        }
+        .btn:hover { background: #444; border-color: #ffd700; transform: translateY(-2px); }
+        .btn-primary { background: linear-gradient(135deg, #b8860b, #daa520); color: #000; border: none; }
+        .btn-opened { background: #4caf50; color: white; border: none; }
+
+        #loot-overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.9); backdrop-filter: blur(5px);
+            z-index: 100; display: none; flex-direction: column; justify-content: center; align-items: center;
+        }
+
+        .reel-container {
+            width: 800px; height: 160px; background: #111;
+            border-top: 3px solid #d4a017; border-bottom: 3px solid #d4a017;
+            position: relative; overflow: hidden; box-shadow: inset 0 0 50px #000;
+        }
+
+        .winning-line {
+            position: absolute; left: 50%; top: 0; bottom: 0; width: 4px;
+            background: #ff0000; transform: translateX(-50%); z-index: 20;
+            box-shadow: 0 0 15px #ff0000;
+        }
+
+        .reel-track {
+            display: flex; height: 100%; position: absolute; left: 0;
+            transition: transform 6s cubic-bezier(0.12, 0.9, 0.15, 1); 
+            align-items: center;
+        }
+
+        .item-card {
+            width: 140px; height: 140px; margin: 0 5px; 
+            background: #222; border: 2px solid #444; display: flex; flex-direction: column;
+            align-items: center; justify-content: center; color: #fff; flex-shrink: 0;
+            position: relative; box-sizing: border-box;
+        }
+        
+        .rarity-common { border-bottom: 6px solid #4b69ff; }
+        .rarity-rare { border-bottom: 6px solid #8847ff; }
+        .rarity-legendary { border-bottom: 6px solid #eb4b4b; background: radial-gradient(circle, #3a1a1a, #222); }
+
+        .item-img-placeholder { width: 60px; height: 60px; border-radius: 50%; margin-bottom: 10px; display: flex; align-items: center; justify-content: center; font-size: 24px; }
+        .item-name { font-size: 12px; text-align: center; padding: 0 5px;}
+
+        #win-modal {
+            position: absolute; top: 70%; text-align: center; opacity: 0; transition: opacity 0.5s; pointer-events: none;
+        }
+        #win-title { font-size: 32px; color: #ffd700; font-weight: bold; text-shadow: 0 0 20px rgba(255,215,0,0.6); }
+
+        #back-to-ticket-btn {
+            position: absolute; top: 100px; left: 50%; transform: translateX(-50%); display: none; z-index: 20;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="header">
+        <h1>长安珍藏</h1>
+        <div class="subtitle" id="current-scene-text">加载中...</div>
+    </div>
+
+    <div id="controls">
+        <button class="btn" id="btn-prev"><i class="fas fa-chevron-left"></i></button>
+        <button class="btn" id="btn-flip">翻转门票</button>
+        <button class="btn btn-primary" id="btn-open-box"><i class="fas fa-box-open"></i> 开启盲盒</button>
+        <button class="btn" id="btn-next"><i class="fas fa-chevron-right"></i></button>
+    </div>
+
+    <button class="btn" id="back-to-ticket-btn">
+        <i class="fas fa-ticket-alt"></i> 返回门票展示
+    </button>
+
+    <div id="loot-overlay">
+        <div class="reel-container">
+            <div class="winning-line"></div>
+            <div class="reel-track" id="reel-track"></div>
+        </div>
+        <div id="win-modal">
+            <div style="color:#ccc; margin-bottom:5px;">CONGRATULATIONS</div>
+            <div id="win-title"></div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.9.1/gsap.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+    <script>
+        // --- 1. 数据配置 ---
+        const ticketsData = [
+            {
+                id: "terra_cotta",
+                name: "秦始皇兵马俑",
+                // 注意：这里把图片占位符也改成 850x275 比例，模拟 17:5.5
+                front: "https://placehold.co/850x275/3e2723/FFF?text=兵马俑门票(17:5.5)",
+                back: "https://placehold.co/850x275/5d4037/DDD?text=门票背面",
+                hasOpened: false,
+                rewardItem: null,
+                pool: [
+                    { name: "普通: 陶土碎片", rarity: "common", color: "#4b69ff", icon: "🗿" },
+                    { name: "稀有: 青铜剑", rarity: "rare", color: "#8847ff", icon: "🗡️" },
+                    { name: "传说: 跪射俑", rarity: "legendary", color: "#eb4b4b", icon: "👑" },
+                    { name: "传说: 铜车马", rarity: "legendary", color: "#eb4b4b", icon: "🐎" }
+                ]
+            },
+            {
+                id: "pagoda",
+                name: "大雁塔",
+                front: "https://placehold.co/850x275/e65100/FFF?text=大雁塔门票(17:5.5)",
+                back: "https://placehold.co/850x275/ff9800/EEE?text=门票背面",
+                hasOpened: false,
+                rewardItem: null,
+                pool: [
+                    { name: "普通: 经书残页", rarity: "common", color: "#4b69ff", icon: "📜" },
+                    { name: "稀有: 玄奘像", rarity: "rare", color: "#8847ff", icon: "🧘" }
+                ]
+            }
+        ];
+
+        let scene, camera, renderer, controls;
+        let currentTicketIndex = 0;
+        let activeObject = null;
+        let isViewingArtifact = false;
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x1a1a1a);
+            scene.fog = new THREE.Fog(0x1a1a1a, 8, 20);
+
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+            camera.position.set(0, 0, 7); // 距离保持在7，视野正好
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            document.body.appendChild(renderer.domElement);
+
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+            const spotLight = new THREE.SpotLight(0xffffff, 1);
+            spotLight.position.set(5, 10, 5);
+            spotLight.castShadow = true;
+            scene.add(spotLight);
+
+            loadTicket(0);
+            animate();
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        function loadTicket(index) {
+            currentTicketIndex = index;
+            const data = ticketsData[index];
+            isViewingArtifact = false;
+
+            document.getElementById('current-scene-text').innerText = data.name + "纪念票";
+            updateButtonState(data);
+
+            if (activeObject) scene.remove(activeObject);
+
+            // --------------------------------------------------------
+            // 核心修改点：调整几何体比例
+            // 比例 17:5.5，我们缩小4倍 -> 宽 4.25, 高 1.375
+            // --------------------------------------------------------
+            const geometry = new THREE.BoxGeometry(4.25, 1.375, 0.05); 
+            
+            const texLoader = new THREE.TextureLoader();
+            const matFront = new THREE.MeshStandardMaterial({ map: texLoader.load(data.front) });
+            const matBack = new THREE.MeshStandardMaterial({ map: texLoader.load(data.back) });
+            const matSide = new THREE.MeshStandardMaterial({ color: 0xeeeeee });
+            const materials = [matSide, matSide, matSide, matSide, matFront, matBack];
+
+            activeObject = new THREE.Mesh(geometry, materials);
+            activeObject.rotation.y = -0.3;
+            scene.add(activeObject);
+
+            document.getElementById('controls').style.display = 'flex';
+            document.getElementById('back-to-ticket-btn').style.display = 'none';
+
+            gsap.from(activeObject.scale, { x:0, y:0, z:0, duration: 0.5, ease: "back.out(1.5)" });
+        }
+
+        function updateButtonState(data) {
+            const btn = document.getElementById('btn-open-box');
+            if (data.hasOpened) {
+                btn.innerHTML = '<i class="fas fa-trophy"></i> 查看已获文物';
+                btn.className = 'btn btn-opened';
+            } else {
+                btn.innerHTML = '<i class="fas fa-box-open"></i> 开启盲盒';
+                btn.className = 'btn btn-primary';
+            }
+        }
+
+        document.getElementById('btn-open-box').addEventListener('click', () => {
+            const data = ticketsData[currentTicketIndex];
+            if (data.hasOpened) {
+                displayArtifact3D(data.rewardItem);
+            } else {
+                startSpin();
+            }
+        });
+
+        function startSpin() {
+            const data = ticketsData[currentTicketIndex];
+            const pool = data.pool;
+            const lootOverlay = document.getElementById('loot-overlay');
+            const reelTrack = document.getElementById('reel-track');
+            const winModal = document.getElementById('win-modal');
+
+            const winnerIndex = Math.floor(Math.random() * pool.length);
+            const winnerItem = pool[winnerIndex];
+
+            const CARD_WIDTH = 150; 
+            const VISIBLE_CARDS = 50; 
+            const END_BUFFER = 5;     
+
+            reelTrack.innerHTML = '';
+            reelTrack.style.transition = 'none';
+            reelTrack.style.transform = 'translateX(0)';
+
+            for (let i = 0; i < VISIBLE_CARDS + END_BUFFER + 1; i++) {
+                let item;
+                if (i === VISIBLE_CARDS) {
+                    item = winnerItem;
+                } else {
+                    item = pool[Math.floor(Math.random() * pool.length)];
+                }
+                
+                const card = document.createElement('div');
+                card.className = `item-card rarity-${item.rarity}`;
+                card.innerHTML = `
+                    <div class="item-img-placeholder" style="background:${item.color}">${item.icon}</div>
+                    <div class="item-name">${item.name}</div>
+                `;
+                reelTrack.appendChild(card);
+            }
+
+            lootOverlay.style.display = 'flex';
+            winModal.style.opacity = '0';
+
+            const cardHalfWidth = CARD_WIDTH / 2;
+            const containerCenter = 400; 
+            const randomOffset = (Math.random() * 40) - 20; 
+
+            const targetX = -(VISIBLE_CARDS * CARD_WIDTH) + containerCenter - cardHalfWidth + randomOffset;
+
+            reelTrack.offsetHeight;
+
+            setTimeout(() => {
+                reelTrack.style.transition = 'transform 6s cubic-bezier(0.12, 0.9, 0.15, 1)';
+                reelTrack.style.transform = `translateX(${targetX}px)`;
+            }, 50);
+
+            setTimeout(() => {
+                data.hasOpened = true;
+                data.rewardItem = winnerItem;
+                updateButtonState(data);
+
+                document.getElementById('win-title').innerText = winnerItem.name;
+                document.getElementById('win-title').style.color = winnerItem.color;
+                winModal.style.opacity = '1';
+
+                setTimeout(() => {
+                    lootOverlay.style.display = 'none';
+                    displayArtifact3D(winnerItem);
+                }, 2000);
+
+            }, 6500); 
+        }
+
+        function displayArtifact3D(item) {
+            isViewingArtifact = true;
+            document.getElementById('controls').style.display = 'none';
+            document.getElementById('back-to-ticket-btn').style.display = 'block';
+            document.getElementById('current-scene-text').innerText = "获得文物：" + item.name;
+
+            if (activeObject) scene.remove(activeObject);
+
+            let geometry;
+            if (item.rarity === 'legendary') geometry = new THREE.TorusKnotGeometry(1, 0.3, 100, 16);
+            else if (item.rarity === 'rare') geometry = new THREE.ConeGeometry(1, 2, 6);
+            else geometry = new THREE.DodecahedronGeometry(1.5);
+
+            const material = new THREE.MeshStandardMaterial({ color: item.color, roughness: 0.3, metalness: 0.6 });
+            activeObject = new THREE.Mesh(geometry, material);
+            scene.add(activeObject);
+
+            gsap.to(activeObject.rotation, { y: Math.PI * 2, duration: 10, repeat: -1, ease: "none" });
+            
+            activeObject.scale.set(0,0,0);
+            gsap.to(activeObject.scale, { x:1, y:1, z:1, duration: 0.8, ease: "elastic.out(1, 0.5)" });
+        }
+
+        document.getElementById('back-to-ticket-btn').addEventListener('click', () => {
+            loadTicket(currentTicketIndex);
+        });
+
+        document.getElementById('btn-next').addEventListener('click', () => {
+            let next = currentTicketIndex + 1;
+            if (next >= ticketsData.length) next = 0;
+            loadTicket(next);
+        });
+        document.getElementById('btn-prev').addEventListener('click', () => {
+            let prev = currentTicketIndex - 1;
+            if (prev < 0) prev = ticketsData.length - 1;
+            loadTicket(prev);
+        });
+
+        document.getElementById('btn-flip').addEventListener('click', () => {
+            if (activeObject && !isViewingArtifact) {
+                gsap.to(activeObject.rotation, { y: activeObject.rotation.y + Math.PI, duration: 0.6 });
+            }
+        });
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        init();
+    </script>
+</body>
+</html>
